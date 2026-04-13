@@ -9,7 +9,20 @@ import {
   ChevronUp,
   Eraser,
 } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
 import type { Day, TaskFilter, Task, TaskPriority } from '../types'
+import { SortableTaskItem } from './SortableTaskItem'
 import { TaskItem } from './TaskItem'
 import { AddTaskForm } from './AddTaskForm'
 
@@ -20,6 +33,7 @@ interface Props {
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
   onClearCompleted: () => void
+  onReorderTasks: (oldIndex: number, newIndex: number) => void
 }
 
 function getDayStatus(date: string) {
@@ -67,9 +81,14 @@ export function DayCard({
   onToggleTask,
   onRemoveTask,
   onClearCompleted,
+  onReorderTasks,
 }: Props) {
   const [filter, setFilter] = useState<TaskFilter>('all')
   const [collapsed, setCollapsed] = useState(false)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
 
   const status = getDayStatus(day.date)
   const styles = statusStyles[status]
@@ -80,6 +99,18 @@ export function DayCard({
   const progress = total > 0 ? Math.round((done / total) * 100) : 0
 
   const visible = filterTasks(day.tasks, filter)
+  // drag & drop only works on unfiltered "all" view to keep indices correct
+  const isDraggable = filter === 'all'
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = day.tasks.findIndex((t) => t.id === active.id)
+    const newIndex = day.tasks.findIndex((t) => t.id === over.id)
+    if (oldIndex !== -1 && newIndex !== -1) {
+      onReorderTasks(oldIndex, newIndex)
+    }
+  }
 
   return (
     <div className={`rounded-2xl border ${styles.card} transition-all duration-300`}>
@@ -185,6 +216,26 @@ export function DayCard({
                     : 'Nenhuma tarefa ainda'}
                 </p>
               </div>
+            ) : isDraggable ? (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={visible.map((t) => t.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {visible.map((task) => (
+                    <SortableTaskItem
+                      key={task.id}
+                      task={task}
+                      onToggle={() => onToggleTask(task.id)}
+                      onRemove={() => onRemoveTask(task.id)}
+                    />
+                  ))}
+                </SortableContext>
+              </DndContext>
             ) : (
               visible.map((task) => (
                 <TaskItem

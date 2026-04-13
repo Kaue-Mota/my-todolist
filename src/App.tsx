@@ -16,6 +16,7 @@ function App() {
     toggleTask,
     removeTask,
     clearCompletedTasks,
+    reorderTasks,
   } = useTasks()
 
   const existingDates = days.map((d) => d.date)
@@ -26,7 +27,7 @@ function App() {
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-600/8 rounded-full blur-3xl" />
         <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600/8 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-indigo-900/5 rounded-full blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-150 h-150 bg-indigo-900/5 rounded-full blur-3xl" />
       </div>
 
       <div className="relative z-10 max-w-2xl mx-auto px-4 py-8 space-y-6">
@@ -70,6 +71,7 @@ function App() {
                 onToggleTask={(taskId) => toggleTask(day.id, taskId)}
                 onRemoveTask={(taskId) => removeTask(day.id, taskId)}
                 onClearCompleted={() => clearCompletedTasks(day.id)}
+                onReorderTasks={(oldIndex, newIndex) => reorderTasks(day.id, oldIndex, newIndex)}
               />
             ))}
           </div>

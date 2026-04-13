@@ -123,6 +123,18 @@ export function useTasks() {
     )
   }, [setDays])
 
+  const reorderTasks = useCallback((dayId: string, oldIndex: number, newIndex: number) => {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.id !== dayId) return d
+        const tasks = [...d.tasks]
+        const [moved] = tasks.splice(oldIndex, 1)
+        tasks.splice(newIndex, 0, moved)
+        return { ...d, tasks }
+      })
+    )
+  }, [setDays])
+
   return {
     days,
     addDay,
@@ -133,5 +145,6 @@ export function useTasks() {
     removeTask,
     updateTask,
     clearCompletedTasks,
+    reorderTasks,
   }
 }
