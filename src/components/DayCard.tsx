@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronUp,
   Eraser,
+  ClipboardCopy,
 } from 'lucide-react'
 import {
   DndContext,
@@ -17,14 +18,13 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import type { Day, TaskFilter, Task, TaskPriority } from '../types'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import type { Day, TaskFilter, DayListItem, TaskPriority } from '../types'
+import { isDivider, isTask } from '../types'
 import { SortableTaskItem } from './SortableTaskItem'
-import { TaskItem } from './TaskItem'
+import { SortableDividerItem } from './SortableDividerItem'
 import { AddTaskForm } from './AddTaskForm'
+import { AddDividerForm } from './AddDividerForm'
 
 interface Props {
   day: Day
@@ -34,6 +34,12 @@ interface Props {
   onRemoveTask: (taskId: string) => void
   onClearCompleted: () => void
   onReorderTasks: (oldIndex: number, newIndex: number) => void
+  onAddDivider: (label: string) => void
+  onUpdateDividerLabel: (dividerId: string, label: string) => void
+  onRemoveDivider: (dividerId: string) => void
+  /** Previous day to copy from, if any */
+  copySource?: { id: string; date: string }
+  onCopyFromDay?: (sourceDayId: string) => void
 }
 
 function getDayStatus(date: string) {
@@ -68,10 +74,13 @@ const filterTabs: { value: TaskFilter; label: string; icon: React.ReactNode }[] 
   { value: 'completed', label: 'Concluídas', icon: <CheckCircle2 size={12} /> },
 ]
 
-function filterTasks(tasks: Task[], filter: TaskFilter) {
-  if (filter === 'pending') return tasks.filter((t) => !t.completed)
-  if (filter === 'completed') return tasks.filter((t) => t.completed)
-  return tasks
+function filterItems(items: DayListItem[], filter: TaskFilter): DayListItem[] {
+  if (filter === 'all') return items
+  // In filtered views, hide dividers and filter by completion
+  return items.filter((item) => {
+    if (isDivider(item)) return false
+    return filter === 'completed' ? item.completed : !item.completed
+  })
 }
 
 export function DayCard({
@@ -82,6 +91,11 @@ export function DayCard({
   onRemoveTask,
   onClearCompleted,
   onReorderTasks,
+  onAddDivider,
+  onUpdateDividerLabel,
+  onRemoveDivider,
+  copySource,
+  onCopyFromDay,
 }: Props) {
   const [filter, setFilter] = useState<TaskFilter>('all')
   const [collapsed, setCollapsed] = useState(false)
@@ -94,12 +108,12 @@ export function DayCard({
   const styles = statusStyles[status]
   const parsedDate = parseISO(day.date)
 
-  const total = day.tasks.length
-  const done = day.tasks.filter((t) => t.completed).length
+  const tasks = day.tasks.filter(isTask)
+  const total = tasks.length
+  const done = tasks.filter((t) => t.completed).length
   const progress = total > 0 ? Math.round((done / total) * 100) : 0
 
-  const visible = filterTasks(day.tasks, filter)
-  // drag & drop only works on unfiltered "all" view to keep indices correct
+  const visible = filterItems(day.tasks, filter)
   const isDraggable = filter === 'all'
 
   function handleDragEnd(event: DragEndEvent) {
@@ -107,9 +121,7 @@ export function DayCard({
     if (!over || active.id === over.id) return
     const oldIndex = day.tasks.findIndex((t) => t.id === active.id)
     const newIndex = day.tasks.findIndex((t) => t.id === over.id)
-    if (oldIndex !== -1 && newIndex !== -1) {
-      onReorderTasks(oldIndex, newIndex)
-    }
+    if (oldIndex !== -1 && newIndex !== -1) onReorderTasks(oldIndex, newIndex)
   }
 
   return (
@@ -127,12 +139,9 @@ export function DayCard({
           </div>
 
           {day.label && (
-            <p className="mt-0.5 text-xs text-white/40 font-medium">
-              {day.label}
-            </p>
+            <p className="mt-0.5 text-xs text-white/40 font-medium">{day.label}</p>
           )}
 
-          {/* Progress */}
           {total > 0 && (
             <div className="mt-2 flex items-center gap-2">
               <div className="flex-1 h-1 bg-white/8 rounded-full overflow-hidden max-w-30">
@@ -141,14 +150,21 @@ export function DayCard({
                   style={{ width: `${progress}%` }}
                 />
               </div>
-              <span className="text-[11px] text-white/35">
-                {done}/{total}
-              </span>
+              <span className="text-[11px] text-white/35">{done}/{total}</span>
             </div>
           )}
         </div>
 
         <div className="flex items-center gap-1 ml-3">
+          {copySource && onCopyFromDay && (
+            <button
+              onClick={() => onCopyFromDay(copySource.id)}
+              title={`Copiar tarefas de ${format(parseISO(copySource.date), "EEE, d/MM", { locale: ptBR })}`}
+              className="p-1.5 rounded-lg text-white/25 hover:text-violet-400 hover:bg-violet-500/10 transition-all duration-150"
+            >
+              <ClipboardCopy size={15} />
+            </button>
+          )}
           {done > 0 && (
             <button
               onClick={onClearCompleted}
@@ -204,7 +220,7 @@ export function DayCard({
             </div>
           )}
 
-          {/* Task List */}
+          {/* List */}
           <div className="space-y-2">
             {visible.length === 0 ? (
               <div className="py-4 text-center">
@@ -217,39 +233,46 @@ export function DayCard({
                 </p>
               </div>
             ) : isDraggable ? (
-              <DndContext
-                sensors={sensors}
-                collisionDetection={closestCenter}
-                onDragEnd={handleDragEnd}
-              >
-                <SortableContext
-                  items={visible.map((t) => t.id)}
-                  strategy={verticalListSortingStrategy}
-                >
-                  {visible.map((task) => (
-                    <SortableTaskItem
-                      key={task.id}
-                      task={task}
-                      onToggle={() => onToggleTask(task.id)}
-                      onRemove={() => onRemoveTask(task.id)}
-                    />
-                  ))}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={visible.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                  {visible.map((item) =>
+                    isDivider(item) ? (
+                      <SortableDividerItem
+                        key={item.id}
+                        divider={item}
+                        onUpdateLabel={(label) => onUpdateDividerLabel(item.id, label)}
+                        onRemove={() => onRemoveDivider(item.id)}
+                      />
+                    ) : (
+                      <SortableTaskItem
+                        key={item.id}
+                        task={item}
+                        onToggle={() => onToggleTask(item.id)}
+                        onRemove={() => onRemoveTask(item.id)}
+                      />
+                    )
+                  )}
                 </SortableContext>
               </DndContext>
             ) : (
-              visible.map((task) => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  onToggle={() => onToggleTask(task.id)}
-                  onRemove={() => onRemoveTask(task.id)}
-                />
-              ))
+              visible.map((item) =>
+                isDivider(item) ? null : (
+                  <SortableTaskItem
+                    key={item.id}
+                    task={item}
+                    onToggle={() => onToggleTask(item.id)}
+                    onRemove={() => onRemoveTask(item.id)}
+                  />
+                )
+              )
             )}
           </div>
 
-          {/* Add Task */}
-          <AddTaskForm onAdd={onAddTask} />
+          {/* Add actions */}
+          <div className="space-y-2">
+            <AddTaskForm onAdd={onAddTask} />
+            <AddDividerForm onAdd={onAddDivider} />
+          </div>
         </div>
       )}
     </div>

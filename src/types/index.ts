@@ -12,11 +12,30 @@ export interface Task {
   completedAt?: string
 }
 
+/** A visual separator with an optional label, shared by all list types. */
+export interface Divider {
+  id: string
+  _type: 'divider'
+  label: string
+  createdAt: string
+}
+
+export type DayListItem = Task | Divider
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function isDivider(item: any): item is Divider {
+  return item?._type === 'divider'
+}
+
+export function isTask(item: DayListItem): item is Task {
+  return !isDivider(item)
+}
+
 export interface Day {
   id: string
-  date: string        // ISO date string: "2024-01-15"
-  label?: string      // Optional custom label e.g. "Sprint Planning"
-  tasks: Task[]
+  date: string
+  label?: string
+  tasks: DayListItem[]
   createdAt: string
 }
 

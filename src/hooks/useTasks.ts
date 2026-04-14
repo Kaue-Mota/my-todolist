@@ -1,6 +1,8 @@
 import { useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import type { Day, Task, TaskPriority } from '../types'
+import type { Divider, Day } from '../types'
+import { isDivider } from '../types'
+import type { TaskPriority, Task } from '../types'
 import { useLocalStorage } from './useLocalStorage'
 
 const STORAGE_KEY = 'todolist-days'
@@ -40,12 +42,7 @@ export function useTasks() {
   // ── Tasks ─────────────────────────────────────────────────────────────────
 
   const addTask = useCallback(
-    (
-      dayId: string,
-      title: string,
-      description?: string,
-      priority: TaskPriority = 'medium'
-    ) => {
+    (dayId: string, title: string, description?: string, priority: TaskPriority = 'medium') => {
       const newTask: Task = {
         id: uuidv4(),
         title: title.trim(),
@@ -70,13 +67,9 @@ export function useTasks() {
         return {
           ...d,
           tasks: d.tasks.map((t) => {
-            if (t.id !== taskId) return t
+            if (isDivider(t) || t.id !== taskId) return t
             const completed = !t.completed
-            return {
-              ...t,
-              completed,
-              completedAt: completed ? new Date().toISOString() : undefined,
-            }
+            return { ...t, completed, completedAt: completed ? new Date().toISOString() : undefined }
           }),
         }
       })
@@ -86,28 +79,17 @@ export function useTasks() {
   const removeTask = useCallback((dayId: string, taskId: string) => {
     setDays((prev) =>
       prev.map((d) =>
-        d.id === dayId
-          ? { ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }
-          : d
+        d.id === dayId ? { ...d, tasks: d.tasks.filter((t) => t.id !== taskId) } : d
       )
     )
   }, [setDays])
 
   const updateTask = useCallback(
-    (
-      dayId: string,
-      taskId: string,
-      updates: Partial<Pick<Task, 'title' | 'description' | 'priority'>>
-    ) => {
+    (dayId: string, taskId: string, updates: Partial<Pick<Task, 'title' | 'description' | 'priority'>>) => {
       setDays((prev) =>
         prev.map((d) =>
           d.id === dayId
-            ? {
-                ...d,
-                tasks: d.tasks.map((t) =>
-                  t.id === taskId ? { ...t, ...updates } : t
-                ),
-              }
+            ? { ...d, tasks: d.tasks.map((t) => (isDivider(t) || t.id !== taskId ? t : { ...t, ...updates })) }
             : d
         )
       )
@@ -118,7 +100,9 @@ export function useTasks() {
   const clearCompletedTasks = useCallback((dayId: string) => {
     setDays((prev) =>
       prev.map((d) =>
-        d.id === dayId ? { ...d, tasks: d.tasks.filter((t) => !t.completed) } : d
+        d.id === dayId
+          ? { ...d, tasks: d.tasks.filter((t) => isDivider(t) || !t.completed) }
+          : d
       )
     )
   }, [setDays])
@@ -135,6 +119,52 @@ export function useTasks() {
     )
   }, [setDays])
 
+  // ── Dividers ──────────────────────────────────────────────────────────────
+
+  const addDivider = useCallback((dayId: string, label: string) => {
+    const newDivider: Divider = {
+      id: uuidv4(),
+      _type: 'divider',
+      label: label.trim(),
+      createdAt: new Date().toISOString(),
+    }
+    setDays((prev) =>
+      prev.map((d) =>
+        d.id === dayId ? { ...d, tasks: [...d.tasks, newDivider] } : d
+      )
+    )
+  }, [setDays])
+
+  const updateDividerLabel = useCallback((dayId: string, dividerId: string, label: string) => {
+    setDays((prev) =>
+      prev.map((d) =>
+        d.id === dayId
+          ? {
+              ...d,
+              tasks: d.tasks.map((t) =>
+                t.id === dividerId && isDivider(t) ? { ...t, label: label.trim() } : t
+              ),
+            }
+          : d
+      )
+    )
+  }, [setDays])
+
+  const copyFromDay = useCallback((targetDayId: string, sourceDayId: string) => {
+    setDays((prev) => {
+      const source = prev.find((d) => d.id === sourceDayId)
+      if (!source) return prev
+      const now = new Date().toISOString()
+      const copied = source.tasks.map((item) => {
+        if (isDivider(item)) return { ...item, id: uuidv4(), createdAt: now }
+        return { ...item, id: uuidv4(), completed: false, completedAt: undefined, createdAt: now }
+      })
+      return prev.map((d) =>
+        d.id === targetDayId ? { ...d, tasks: [...d.tasks, ...copied] } : d
+      )
+    })
+  }, [setDays])
+
   return {
     days,
     addDay,
@@ -146,5 +176,8 @@ export function useTasks() {
     updateTask,
     clearCompletedTasks,
     reorderTasks,
+    addDivider,
+    updateDividerLabel,
+    copyFromDay,
   }
 }

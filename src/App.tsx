@@ -1,91 +1,45 @@
 import { useState } from 'react'
-import { CalendarPlus, CheckSquare } from 'lucide-react'
-import { useTasks } from './hooks/useTasks'
-import { DayCard } from './components/DayCard'
-import { AddDayModal } from './components/AddDayModal'
-import { StatsBar } from './components/StatsBar'
-import { EmptyState } from './components/EmptyState'
+import { Sidebar, type AppView } from './components/Sidebar'
+import { DayView } from './views/DayView'
+import { WorkoutView } from './views/WorkoutView'
+import { PomodoroView } from './views/PomodoroView'
+import { PomodoroProvider } from './context/PomodoroContext'
+import { PomodoroMiniWidget } from './components/pomodoro/PomodoroMiniWidget'
 
 function App() {
-  const [modalOpen, setModalOpen] = useState(false)
-  const {
-    days,
-    addDay,
-    removeDay,
-    addTask,
-    toggleTask,
-    removeTask,
-    clearCompletedTasks,
-    reorderTasks,
-  } = useTasks()
-
-  const existingDates = days.map((d) => d.date)
+  const [activeView, setActiveView] = useState<AppView>('tasks')
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Background decoration */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-600/8 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600/8 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-150 h-150 bg-indigo-900/5 rounded-full blur-3xl" />
-      </div>
+    <PomodoroProvider>
+      <div className="flex min-h-screen bg-gray-950 text-white">
+        {/* Ambient background */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-96 h-96 bg-indigo-600/6 rounded-full blur-3xl" />
+          <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-violet-600/6 rounded-full blur-3xl" />
+        </div>
 
-      <div className="relative z-10 max-w-2xl mx-auto px-4 py-8 space-y-6">
-        {/* Header */}
-        <header className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-indigo-500/15 border border-indigo-500/25">
-              <CheckSquare size={22} className="text-indigo-400" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white leading-none">My Day</h1>
-              <p className="text-xs text-white/30 mt-0.5">Organize seu dia</p>
-            </div>
+        <Sidebar activeView={activeView} onChangeView={setActiveView} />
+
+        <main className="relative z-10 flex-1 overflow-y-auto">
+          {/* All views stay mounted — Pomodoro timer and white noise survive tab switches */}
+          <div className={`max-w-2xl mx-auto px-4 py-8 pb-24 md:pb-8 ${activeView === 'tasks' ? '' : 'hidden'}`}>
+            <DayView />
           </div>
-
-          <button
-            onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500 hover:bg-indigo-400 text-white text-sm font-semibold rounded-xl transition-colors shadow-lg shadow-indigo-500/20"
-          >
-            <CalendarPlus size={16} />
-            Novo dia
-          </button>
-        </header>
-
-        {/* Stats */}
-        {days.length > 0 && <StatsBar days={days} />}
-
-        {/* Days List */}
-        {days.length === 0 ? (
-          <EmptyState onAddDay={() => setModalOpen(true)} />
-        ) : (
-          <div className="space-y-4">
-            {days.map((day) => (
-              <DayCard
-                key={day.id}
-                day={day}
-                onRemoveDay={() => removeDay(day.id)}
-                onAddTask={(title, description, priority) =>
-                  addTask(day.id, title, description, priority)
-                }
-                onToggleTask={(taskId) => toggleTask(day.id, taskId)}
-                onRemoveTask={(taskId) => removeTask(day.id, taskId)}
-                onClearCompleted={() => clearCompletedTasks(day.id)}
-                onReorderTasks={(oldIndex, newIndex) => reorderTasks(day.id, oldIndex, newIndex)}
-              />
-            ))}
+          <div className={`max-w-2xl mx-auto px-4 py-8 pb-24 md:pb-8 ${activeView === 'workout' ? '' : 'hidden'}`}>
+            <WorkoutView />
           </div>
-        )}
-      </div>
+          <div className={`max-w-2xl mx-auto px-4 py-8 pb-24 md:pb-8 ${activeView === 'pomodoro' ? '' : 'hidden'}`}>
+            <PomodoroView />
+          </div>
+        </main>
 
-      {/* Add Day Modal */}
-      <AddDayModal
-        open={modalOpen}
-        existingDates={existingDates}
-        onClose={() => setModalOpen(false)}
-        onAdd={addDay}
-      />
-    </div>
+        {/* Floating mini Pomodoro widget shown on other tabs */}
+        <PomodoroMiniWidget
+          activeView={activeView}
+          onGoToPomodoro={() => setActiveView('pomodoro')}
+        />
+      </div>
+    </PomodoroProvider>
   )
 }
 
