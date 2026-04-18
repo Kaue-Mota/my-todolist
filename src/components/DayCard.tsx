@@ -10,14 +10,7 @@ import {
   Eraser,
   ClipboardCopy,
 } from 'lucide-react'
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import type { Day, TaskFilter, DayListItem, TaskPriority } from '../types'
 import { isDivider, isTask } from '../types'
@@ -26,17 +19,21 @@ import { SortableDividerItem } from './SortableDividerItem'
 import { AddTaskForm } from './AddTaskForm'
 import { AddDividerForm } from './AddDividerForm'
 
+interface DayTarget { id: string; date: string }
+
 interface Props {
   day: Day
+  allDays: DayTarget[]
   onRemoveDay: () => void
   onAddTask: (title: string, description?: string, priority?: TaskPriority) => void
   onToggleTask: (taskId: string) => void
   onRemoveTask: (taskId: string) => void
   onClearCompleted: () => void
-  onReorderTasks: (oldIndex: number, newIndex: number) => void
   onAddDivider: (label: string) => void
   onUpdateDividerLabel: (dividerId: string, label: string) => void
   onRemoveDivider: (dividerId: string) => void
+  onToggleRecurring: (taskId: string) => void
+  onMoveTask: (taskId: string, toDayId: string) => void
   /** Previous day to copy from, if any */
   copySource?: { id: string; date: string }
   onCopyFromDay?: (sourceDayId: string) => void
@@ -76,7 +73,6 @@ const filterTabs: { value: TaskFilter; label: string; icon: React.ReactNode }[] 
 
 function filterItems(items: DayListItem[], filter: TaskFilter): DayListItem[] {
   if (filter === 'all') return items
-  // In filtered views, hide dividers and filter by completion
   return items.filter((item) => {
     if (isDivider(item)) return false
     return filter === 'completed' ? item.completed : !item.completed
@@ -85,24 +81,22 @@ function filterItems(items: DayListItem[], filter: TaskFilter): DayListItem[] {
 
 export function DayCard({
   day,
+  allDays,
   onRemoveDay,
   onAddTask,
   onToggleTask,
   onRemoveTask,
   onClearCompleted,
-  onReorderTasks,
   onAddDivider,
   onUpdateDividerLabel,
   onRemoveDivider,
+  onToggleRecurring,
+  onMoveTask,
   copySource,
   onCopyFromDay,
 }: Props) {
   const [filter, setFilter] = useState<TaskFilter>('all')
   const [collapsed, setCollapsed] = useState(false)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
-  )
 
   const status = getDayStatus(day.date)
   const styles = statusStyles[status]
@@ -116,16 +110,17 @@ export function DayCard({
   const visible = filterItems(day.tasks, filter)
   const isDraggable = filter === 'all'
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIndex = day.tasks.findIndex((t) => t.id === active.id)
-    const newIndex = day.tasks.findIndex((t) => t.id === over.id)
-    if (oldIndex !== -1 && newIndex !== -1) onReorderTasks(oldIndex, newIndex)
-  }
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: `dropzone-${day.id}` })
+
+  const moveOptions = allDays.filter((d) => d.id !== day.id)
 
   return (
-    <div className={`rounded-2xl border ${styles.card} transition-all duration-300`}>
+    <div
+      ref={setDropRef}
+      className={`rounded-2xl border transition-all duration-300
+        ${styles.card}
+        ${isOver ? 'ring-2 ring-indigo-400/60 shadow-xl shadow-indigo-500/10' : ''}`}
+    >
       {/* Header */}
       <div className="flex items-start justify-between px-5 pt-4 pb-3">
         <div className="flex-1 min-w-0">
@@ -191,7 +186,6 @@ export function DayCard({
 
       {!collapsed && (
         <div className="px-5 pb-4 space-y-3">
-          {/* Filter Tabs */}
           {total > 0 && (
             <div className="flex gap-1 bg-white/3 p-1 rounded-lg w-fit">
               {filterTabs.map((tab) => (
@@ -220,7 +214,6 @@ export function DayCard({
             </div>
           )}
 
-          {/* List */}
           <div className="space-y-2">
             {visible.length === 0 ? (
               <div className="py-4 text-center">
@@ -233,35 +226,42 @@ export function DayCard({
                 </p>
               </div>
             ) : isDraggable ? (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={visible.map((t) => t.id)} strategy={verticalListSortingStrategy}>
-                  {visible.map((item) =>
-                    isDivider(item) ? (
-                      <SortableDividerItem
-                        key={item.id}
-                        divider={item}
-                        onUpdateLabel={(label) => onUpdateDividerLabel(item.id, label)}
-                        onRemove={() => onRemoveDivider(item.id)}
-                      />
-                    ) : (
-                      <SortableTaskItem
-                        key={item.id}
-                        task={item}
-                        onToggle={() => onToggleTask(item.id)}
-                        onRemove={() => onRemoveTask(item.id)}
-                      />
-                    )
-                  )}
-                </SortableContext>
-              </DndContext>
+              <SortableContext items={visible.map((t) => t.id)} strategy={verticalListSortingStrategy}>
+                {visible.map((item) =>
+                  isDivider(item) ? (
+                    <SortableDividerItem
+                      key={item.id}
+                      divider={item}
+                      onUpdateLabel={(label) => onUpdateDividerLabel(item.id, label)}
+                      onRemove={() => onRemoveDivider(item.id)}
+                    />
+                  ) : (
+                    <SortableTaskItem
+                      key={item.id}
+                      task={item}
+                      dayId={day.id}
+                      dayTargets={moveOptions}
+                      onToggle={() => onToggleTask(item.id)}
+                      onRemove={() => onRemoveTask(item.id)}
+                      onToggleRecurring={() => onToggleRecurring(item.id)}
+                      onMoveTo={(toDayId) => onMoveTask(item.id, toDayId)}
+                    />
+                  )
+                )}
+              </SortableContext>
             ) : (
               visible.map((item) =>
                 isDivider(item) ? null : (
                   <SortableTaskItem
                     key={item.id}
                     task={item}
+                    dayId={day.id}
+                    dayTargets={moveOptions}
                     onToggle={() => onToggleTask(item.id)}
                     onRemove={() => onRemoveTask(item.id)}
+                    onToggleRecurring={() => onToggleRecurring(item.id)}
+                    onMoveTo={(toDayId) => onMoveTask(item.id, toDayId)}
+                    draggable={false}
                   />
                 )
               )
@@ -269,8 +269,8 @@ export function DayCard({
           </div>
 
           {/* Add actions */}
-          <div className="space-y-2">
-            <AddTaskForm onAdd={onAddTask} />
+          <div className="space-y-2" id={`task-addform-${day.id}`}>
+            <AddTaskForm dayId={day.id} onAdd={onAddTask} />
             <AddDividerForm onAdd={onAddDivider} />
           </div>
         </div>

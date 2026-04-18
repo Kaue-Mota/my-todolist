@@ -1,18 +1,29 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Plus } from 'lucide-react'
 
 interface Props {
+  dayId?: string
   onAdd: (name: string, setsReps: string, notes?: string) => void
 }
 
 // Quick-fill presets
 const PRESETS = ['2x10', '3x10', '3x12', '4x8', '4x12', '3x15', '3x30s', '4x45s']
 
-export function AddExerciseForm({ onAdd }: Props) {
+export function AddExerciseForm({ dayId, onAdd }: Props) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [setsReps, setSetsReps] = useState('')
   const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    if (!dayId) return
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { dayId: string } | undefined
+      if (detail?.dayId === dayId) setOpen(true)
+    }
+    window.addEventListener('organizer:add-exercise', onOpen)
+    return () => window.removeEventListener('organizer:add-exercise', onOpen)
+  }, [dayId])
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()

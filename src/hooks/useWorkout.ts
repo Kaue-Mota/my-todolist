@@ -10,6 +10,11 @@ const STORAGE_KEY = 'workout-days'
 export function useWorkout() {
   const [days, setDays] = useLocalStorage<WorkoutDay[]>(STORAGE_KEY, [])
 
+  /** Overwrite state with a previous snapshot — used by undo actions. */
+  const restoreSnapshot = useCallback((snapshot: WorkoutDay[]) => {
+    setDays(snapshot)
+  }, [setDays])
+
   // ── Days ──────────────────────────────────────────────────────────────────
 
   const ensureDays = useCallback((dates: string[]) => {
@@ -159,6 +164,7 @@ export function useWorkout() {
 
   return {
     days,
+    restoreSnapshot,
     ensureDays,
     removeDay,
     addExercise,

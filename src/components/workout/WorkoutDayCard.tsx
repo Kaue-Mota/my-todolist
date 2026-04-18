@@ -216,8 +216,8 @@ export function WorkoutDayCard({
             )}
           </div>
 
-          <div className="space-y-2">
-            <AddExerciseForm onAdd={onAddExercise} />
+          <div className="space-y-2" id={`exercise-addform-${day.id}`}>
+            <AddExerciseForm dayId={day.id} onAdd={onAddExercise} />
             <AddDividerForm onAdd={onAddDivider} accentColor="emerald" />
           </div>
         </div>

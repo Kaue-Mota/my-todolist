@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react'
-import { Plus, ChevronDown } from 'lucide-react'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Plus, ChevronDown, Sparkles } from 'lucide-react'
 import type { TaskPriority } from '../types'
+import { parseQuickAdd } from '../utils/quickAdd'
 
 interface Props {
+  dayId?: string
   onAdd: (title: string, description?: string, priority?: TaskPriority) => void
 }
 
@@ -12,16 +14,28 @@ const priorityOptions: { value: TaskPriority; label: string }[] = [
   { value: 'high', label: 'Alta' },
 ]
 
-export function AddTaskForm({ onAdd }: Props) {
+export function AddTaskForm({ dayId, onAdd }: Props) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [priority, setPriority] = useState<TaskPriority>('medium')
 
+  // Listen for external "open me" trigger (keyboard shortcut N)
+  useEffect(() => {
+    if (!dayId) return
+    const onOpen = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { dayId: string } | undefined
+      if (detail?.dayId === dayId) setOpen(true)
+    }
+    window.addEventListener('organizer:add-task', onOpen)
+    return () => window.removeEventListener('organizer:add-task', onOpen)
+  }, [dayId])
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!title.trim()) return
-    onAdd(title, description || undefined, priority)
+    const parsed = parseQuickAdd(title, priority)
+    if (!parsed.title) return
+    onAdd(parsed.title, description || undefined, parsed.priority)
     setTitle('')
     setDescription('')
     setPriority('medium')
@@ -36,9 +50,13 @@ export function AddTaskForm({ onAdd }: Props) {
       >
         <Plus size={15} />
         Adicionar tarefa
+        <span className="ml-auto font-mono text-[10px] text-white/25 bg-white/5 border border-white/8 rounded px-1 py-0.5">N</span>
       </button>
     )
   }
+
+  const parsed = parseQuickAdd(title, priority)
+  const detected = parsed.title !== title.trim()
 
   return (
     <form
@@ -50,9 +68,16 @@ export function AddTaskForm({ onAdd }: Props) {
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        placeholder="Nome da tarefa..."
+        placeholder="Nome da tarefa... (dica: !alta, !baixa)"
         className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/25 outline-none focus:border-indigo-400/60 focus:bg-white/8 transition-all"
       />
+
+      {detected && (
+        <div className="flex items-center gap-1.5 text-[11px] text-indigo-300">
+          <Sparkles size={11} />
+          Prioridade detectada: <span className="font-semibold capitalize">{parsed.priority === 'high' ? 'alta' : parsed.priority === 'low' ? 'baixa' : 'média'}</span>
+        </div>
+      )}
 
       <textarea
         value={description}
@@ -88,7 +113,7 @@ export function AddTaskForm({ onAdd }: Props) {
 
         <button
           type="submit"
-          disabled={!title.trim()}
+          disabled={!parsed.title.trim()}
           className="px-4 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-400 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
         >
           Adicionar

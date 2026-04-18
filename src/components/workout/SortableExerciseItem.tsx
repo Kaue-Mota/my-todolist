@@ -22,7 +22,7 @@ export function SortableExerciseItem({ exercise, onToggle, onRemove }: Props) {
   }
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-1">
+    <div ref={setNodeRef} style={style} id={`exercise-item-${exercise.id}`} className="flex items-center gap-1">
       <button
         {...attributes}
         {...listeners}

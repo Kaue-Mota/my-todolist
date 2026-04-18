@@ -20,6 +20,13 @@ export interface PomodoroSettings {
   shortMin: number
   longMin: number
   sessionsBeforeLong: number
+  notificationsEnabled: boolean
+}
+
+export interface ActiveTaskLink {
+  dayId: string
+  taskId: string
+  title: string
 }
 
 export const DEFAULT_SETTINGS: PomodoroSettings = {
@@ -27,6 +34,7 @@ export const DEFAULT_SETTINGS: PomodoroSettings = {
   shortMin: 5,
   longMin: 15,
   sessionsBeforeLong: 4,
+  notificationsEnabled: false,
 }
 
 export const PHASE_META: Record<Phase, { label: string; ring: string; activeTab: string; tab: string }> = {
@@ -41,6 +49,12 @@ export const NOISE_META: Record<NoiseType, { label: string; emoji: string }> = {
   water: { label: 'Água',   emoji: '💧' },
 }
 
+interface FocusStats {
+  date: string  // YYYY-MM-DD
+  seconds: number
+  sessions: number
+}
+
 interface PomodoroContextValue {
   settings: PomodoroSettings
   setSettings: (s: PomodoroSettings) => void
@@ -51,12 +65,19 @@ interface PomodoroContextValue {
   noiseOn: boolean
   noiseVol: number
   noiseType: NoiseType
+  activeTask: ActiveTaskLink | null
+  focusToday: FocusStats
   toggleRun: () => void
   reset: () => void
   switchPhase: (p: Phase) => void
   toggleNoise: () => void
   setNoiseVol: (v: number) => void
   setNoiseType: (t: NoiseType) => void
+  setActiveTask: (link: ActiveTaskLink | null) => void
+  requestNotifications: () => Promise<boolean>
+  setNotificationsEnabled: (on: boolean) => void
+  /** Called when a work session completes — consumers use this to increment task pomodoros. */
+  onWorkComplete: (cb: (link: ActiveTaskLink) => void) => () => void
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -104,22 +125,17 @@ export function playWhoosh() {
   } catch { /**/ }
 }
 
-// Fill a buffer with the samples for the requested noise type
 function fillNoiseBuffer(d: Float32Array, type: NoiseType) {
   if (type === 'white') {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1
-
   } else if (type === 'brown') {
-    // Brownian / red noise — integrate white noise
     let last = 0
     for (let i = 0; i < d.length; i++) {
       const w = Math.random() * 2 - 1
       last = (last + 0.02 * w) / 1.02
       d[i] = last * 3.5
     }
-
   } else {
-    // water — pink noise via Voss-McCartney approximation
     let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0
     for (let i = 0; i < d.length; i++) {
       const w = Math.random() * 2 - 1
@@ -135,7 +151,6 @@ function fillNoiseBuffer(d: Float32Array, type: NoiseType) {
   }
 }
 
-// Build a new noise graph for the given type; returns the gain node (starts silent)
 function buildNoiseGraph(ctx: AudioContext, type: NoiseType): GainNode {
   const rate = ctx.sampleRate
   const buf = ctx.createBuffer(1, rate * 4, rate)
@@ -153,7 +168,6 @@ function buildNoiseGraph(ctx: AudioContext, type: NoiseType): GainNode {
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1000
     src.connect(lp); lp.connect(gain)
   } else {
-    // water — pink noise with mid-range focus
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200
     src.connect(lp); lp.connect(gain)
   }
@@ -200,6 +214,42 @@ export function setNoisevolume(v: number) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+function canNotify(): boolean {
+  return typeof Notification !== 'undefined' && Notification.permission === 'granted'
+}
+
+function notify(title: string, body: string) {
+  try {
+    if (!canNotify()) return
+    const n = new Notification(title, {
+      body,
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      tag: 'pomodoro',
+      silent: false,
+    })
+    // Auto-close after 8s
+    setTimeout(() => n.close(), 8000)
+  } catch { /**/ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Focus stats helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function todayKey(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function emptyFocus(): FocusStats {
+  return { date: todayKey(), seconds: 0, sessions: 0 }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Context
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -215,7 +265,16 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
   const [noiseOn, setNoiseOn] = useState(false)
   const [noiseVol, setNoiseVolState] = useState(0.04)
   const [noiseType, setNoiseTypeState] = useState<NoiseType>('white')
+  const [activeTask, setActiveTaskState] = useLocalStorage<ActiveTaskLink | null>('pomodoro-active-task', null)
+  const [focusToday, setFocusToday] = useLocalStorage<FocusStats>('pomodoro-focus-today', emptyFocus())
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const workCompleteListeners = useRef<Set<(link: ActiveTaskLink) => void>>(new Set())
+
+  // Reset focus stats at midnight / when date changes
+  useEffect(() => {
+    const key = todayKey()
+    if (focusToday.date !== key) setFocusToday({ date: key, seconds: 0, sessions: 0 })
+  }, [focusToday.date, setFocusToday])
 
   function phaseSeconds(p: Phase, s = settings) {
     return (p === 'work' ? s.workMin : p === 'short' ? s.shortMin : s.longMin) * 60
@@ -226,8 +285,26 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
     (completedPhase: Phase) => {
       setRunning(false)
       setEndTime(null)
+
       if (completedPhase === 'work') {
         playWorkComplete()
+
+        // Credit focus time
+        setFocusToday((prev) => {
+          const key = todayKey()
+          const base = prev.date === key ? prev : { date: key, seconds: 0, sessions: 0 }
+          return { ...base, seconds: base.seconds + settings.workMin * 60, sessions: base.sessions + 1 }
+        })
+
+        // Notify task consumer if a task is linked
+        if (activeTask) {
+          for (const fn of workCompleteListeners.current) {
+            try { fn(activeTask) } catch { /**/ }
+          }
+        }
+
+        notify('Foco concluído! 🎯', activeTask ? `"${activeTask.title}" — hora de uma pausa` : 'Hora de uma pausa')
+
         setSessionsDone((prev) => {
           const next = prev + 1
           const nextPhase: Phase = next % settings.sessionsBeforeLong === 0 ? 'long' : 'short'
@@ -240,6 +317,7 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
         })
       } else {
         playBreakComplete()
+        notify('Pausa terminada', 'Vamos voltar ao foco')
         setTimeout(() => {
           playWhoosh()
           setPhase('work')
@@ -248,7 +326,7 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [settings]
+    [settings, activeTask, setFocusToday]
   )
 
   // ── Tick ──────────────────────────────────────────────────────────────────
@@ -270,7 +348,6 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(tickRef.current!)
   }, [running, endTime, phase, handleComplete])
 
-  // Sync on tab focus
   useEffect(() => {
     const onVisible = () => {
       if (running && endTime !== null) {
@@ -323,6 +400,33 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
     setTimeLeft(s.workMin * 60)
   }, [setSettingsStored])
 
+  // ── Notifications ─────────────────────────────────────────────────────────
+  const requestNotifications = useCallback(async () => {
+    if (typeof Notification === 'undefined') return false
+    if (Notification.permission === 'granted') {
+      setSettingsStored({ ...settings, notificationsEnabled: true })
+      return true
+    }
+    const result = await Notification.requestPermission()
+    const ok = result === 'granted'
+    setSettingsStored({ ...settings, notificationsEnabled: ok })
+    return ok
+  }, [settings, setSettingsStored])
+
+  const setNotificationsEnabled = useCallback((on: boolean) => {
+    setSettingsStored({ ...settings, notificationsEnabled: on })
+  }, [settings, setSettingsStored])
+
+  // ── Active task ───────────────────────────────────────────────────────────
+  const setActiveTask = useCallback((link: ActiveTaskLink | null) => {
+    setActiveTaskState(link)
+  }, [setActiveTaskState])
+
+  const onWorkComplete = useCallback((cb: (link: ActiveTaskLink) => void) => {
+    workCompleteListeners.current.add(cb)
+    return () => { workCompleteListeners.current.delete(cb) }
+  }, [])
+
   // ── Ambient noise ─────────────────────────────────────────────────────────
   const toggleNoise = useCallback(() => {
     playClick()
@@ -341,9 +445,7 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
     setNoiseTypeState(t)
     setNoiseOn((on) => {
       if (on) {
-        // Restart with new type — tear down current graph, build new one
         stopNoise()
-        // Small delay so gain ramps to 0 before we rebuild
         setTimeout(() => startNoise(noiseVol, t), 120)
       }
       return on
@@ -355,8 +457,12 @@ export function PomodoroProvider({ children }: { children: React.ReactNode }) {
       settings, setSettings,
       phase, timeLeft, running, sessionsDone,
       noiseOn, noiseVol, noiseType,
+      activeTask, focusToday,
       toggleRun, reset, switchPhase,
       toggleNoise, setNoiseVol: handleSetNoiseVol, setNoiseType: handleSetNoiseType,
+      setActiveTask,
+      requestNotifications, setNotificationsEnabled,
+      onWorkComplete,
     }}>
       {children}
     </PomodoroContext.Provider>

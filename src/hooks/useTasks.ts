@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import type { Divider, Day } from '../types'
-import { isDivider } from '../types'
+import type { Divider, Day, DayListItem } from '../types'
+import { isDivider, isTask } from '../types'
 import type { TaskPriority, Task } from '../types'
 import { useLocalStorage } from './useLocalStorage'
 
@@ -10,18 +10,40 @@ const STORAGE_KEY = 'todolist-days'
 export function useTasks() {
   const [days, setDays] = useLocalStorage<Day[]>(STORAGE_KEY, [])
 
+  /** Overwrite state with a previous snapshot — used by undo actions. */
+  const restoreSnapshot = useCallback((snapshot: Day[]) => {
+    setDays(snapshot)
+  }, [setDays])
+
   // ── Days ──────────────────────────────────────────────────────────────────
 
   const addDay = useCallback((date: string, label?: string) => {
     setDays((prev) => {
       const exists = prev.some((d) => d.date === date)
       if (exists) return prev
+
+      // Pull in recurring tasks from the most recent existing day (if any).
+      const template = [...prev].sort((a, b) => b.date.localeCompare(a.date))[0]
+      const now = new Date().toISOString()
+      const recurringTasks: DayListItem[] = template
+        ? template.tasks
+            .filter((t) => isTask(t) && t.recurring)
+            .map((t) => ({
+              ...(t as Task),
+              id: uuidv4(),
+              completed: false,
+              completedAt: undefined,
+              pomodoros: 0,
+              createdAt: now,
+            }))
+        : []
+
       const newDay: Day = {
         id: uuidv4(),
         date,
         label: label?.trim() || undefined,
-        tasks: [],
-        createdAt: new Date().toISOString(),
+        tasks: recurringTasks,
+        createdAt: now,
       }
       return [...prev, newDay].sort((a, b) => a.date.localeCompare(b.date))
     })
@@ -85,7 +107,7 @@ export function useTasks() {
   }, [setDays])
 
   const updateTask = useCallback(
-    (dayId: string, taskId: string, updates: Partial<Pick<Task, 'title' | 'description' | 'priority'>>) => {
+    (dayId: string, taskId: string, updates: Partial<Pick<Task, 'title' | 'description' | 'priority' | 'recurring'>>) => {
       setDays((prev) =>
         prev.map((d) =>
           d.id === dayId
@@ -96,6 +118,36 @@ export function useTasks() {
     },
     [setDays]
   )
+
+  const toggleRecurring = useCallback((dayId: string, taskId: string) => {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.id !== dayId) return d
+        return {
+          ...d,
+          tasks: d.tasks.map((t) => {
+            if (isDivider(t) || t.id !== taskId) return t
+            return { ...t, recurring: t.recurring ? undefined : 'daily' }
+          }),
+        }
+      })
+    )
+  }, [setDays])
+
+  const incrementPomodoro = useCallback((dayId: string, taskId: string) => {
+    setDays((prev) =>
+      prev.map((d) => {
+        if (d.id !== dayId) return d
+        return {
+          ...d,
+          tasks: d.tasks.map((t) => {
+            if (isDivider(t) || t.id !== taskId) return t
+            return { ...t, pomodoros: (t.pomodoros ?? 0) + 1 }
+          }),
+        }
+      })
+    )
+  }, [setDays])
 
   const clearCompletedTasks = useCallback((dayId: string) => {
     setDays((prev) =>
@@ -117,6 +169,22 @@ export function useTasks() {
         return { ...d, tasks }
       })
     )
+  }, [setDays])
+
+  /** Move a task (or divider) to another day, appending at the end. */
+  const moveTaskToDay = useCallback((fromDayId: string, toDayId: string, taskId: string) => {
+    if (fromDayId === toDayId) return
+    setDays((prev) => {
+      const from = prev.find((d) => d.id === fromDayId)
+      if (!from) return prev
+      const item = from.tasks.find((t) => t.id === taskId)
+      if (!item) return prev
+      return prev.map((d) => {
+        if (d.id === fromDayId) return { ...d, tasks: d.tasks.filter((t) => t.id !== taskId) }
+        if (d.id === toDayId)   return { ...d, tasks: [...d.tasks, item] }
+        return d
+      })
+    })
   }, [setDays])
 
   // ── Dividers ──────────────────────────────────────────────────────────────
@@ -157,7 +225,7 @@ export function useTasks() {
       const now = new Date().toISOString()
       const copied = source.tasks.map((item) => {
         if (isDivider(item)) return { ...item, id: uuidv4(), createdAt: now }
-        return { ...item, id: uuidv4(), completed: false, completedAt: undefined, createdAt: now }
+        return { ...item, id: uuidv4(), completed: false, completedAt: undefined, pomodoros: 0, createdAt: now }
       })
       return prev.map((d) =>
         d.id === targetDayId ? { ...d, tasks: [...d.tasks, ...copied] } : d
@@ -167,6 +235,7 @@ export function useTasks() {
 
   return {
     days,
+    restoreSnapshot,
     addDay,
     removeDay,
     updateDayLabel,
@@ -174,8 +243,11 @@ export function useTasks() {
     toggleTask,
     removeTask,
     updateTask,
+    toggleRecurring,
+    incrementPomodoro,
     clearCompletedTasks,
     reorderTasks,
+    moveTaskToDay,
     addDivider,
     updateDividerLabel,
     copyFromDay,

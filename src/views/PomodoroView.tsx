@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Play, Pause, RotateCcw, Settings, Wind, X, ChevronDown } from 'lucide-react'
+import { Play, Pause, RotateCcw, Settings, Wind, X, ChevronDown, Bell, BellOff, Target } from 'lucide-react'
 import {
   usePomodoroContext,
   PHASE_META,
@@ -9,27 +9,31 @@ import {
   type PomodoroSettings,
   playClick,
 } from '../context/PomodoroContext'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+import { ActiveTaskPill } from '../components/pomodoro/ActiveTaskPill'
+import { useToast } from '../components/ToastProvider'
 
 function fmt(seconds: number) {
   const s = Math.max(0, Math.ceil(seconds))
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
+function formatFocus(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`
+  const mins = Math.floor(seconds / 60)
+  if (mins < 60) return `${mins}m`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, '0')}`
+}
+
 const R      = 88;   const CIRC      = 2 * Math.PI * R
 const FULL_R = 130;  const FULL_CIRC = 2 * Math.PI * FULL_R
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Fullscreen overlay (triggered from the Pomodoro tab)
-// ─────────────────────────────────────────────────────────────────────────────
 
 function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
   const {
     phase, timeLeft, running, settings, sessionsDone,
-    noiseOn, noiseType, toggleRun, reset, switchPhase, toggleNoise, setNoiseType,
+    noiseOn, noiseType, activeTask,
+    toggleRun, reset, switchPhase, toggleNoise, setNoiseType, setActiveTask,
   } = usePomodoroContext()
 
   const [mounted, setMounted] = useState(false)
@@ -50,7 +54,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // Close when timer is paused
   const prevRunning = useRef(running)
   useEffect(() => {
     if (prevRunning.current && !running) handleClose()
@@ -73,7 +76,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
         transition: 'opacity 0.25s ease',
       }}
     >
-      {/* Ambient glow */}
       <div
         className="absolute rounded-full blur-3xl pointer-events-none"
         style={{
@@ -84,9 +86,8 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
         }}
       />
 
-      {/* Content card */}
       <div
-        className="relative flex flex-col items-center gap-8 px-8 py-10 w-full max-w-sm"
+        className="relative flex flex-col items-center gap-6 px-8 py-10 w-full max-w-sm"
         style={{
           transform: mounted ? 'scale(1) translateY(0)' : 'scale(0.4) translateY(80px)',
           opacity: mounted ? 1 : 0,
@@ -96,7 +97,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
             : 'transform 0.28s ease, opacity 0.22s ease',
         }}
       >
-        {/* Top controls */}
         <div className="absolute top-0 right-0 flex items-center gap-1">
           <button
             onClick={toggleNoise}
@@ -114,7 +114,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Noise type selector (fullscreen) */}
         {noiseOn && (
           <div className="absolute top-0 left-0 flex items-center gap-1">
             {(Object.keys(NOISE_META) as NoiseType[]).map((t) => (
@@ -130,7 +129,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* Phase tabs */}
         <div className="flex gap-1.5 bg-white/5 p-1 rounded-2xl w-full">
           {(['work', 'short', 'long'] as Phase[]).map((p) => (
             <button
@@ -144,7 +142,18 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        {/* Ring */}
+        {activeTask && phase === 'work' && (
+          <div className="w-full flex items-center justify-between gap-2 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25">
+            <div className="flex items-center gap-2 min-w-0">
+              <Target size={14} className="text-rose-400 shrink-0" />
+              <span className="text-xs text-rose-200 truncate">{activeTask.title}</span>
+            </div>
+            <button onClick={() => setActiveTask(null)} className="text-[10px] text-rose-300/70 hover:text-rose-200 uppercase tracking-wide">
+              Desvincular
+            </button>
+          </div>
+        )}
+
         <div className="relative flex items-center justify-center">
           <svg width="300" height="300" className="-rotate-90">
             <circle cx="150" cy="150" r={FULL_R} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" />
@@ -168,7 +177,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
-        {/* Session dots */}
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2.5">
             {sessionDots.map((_, i) => (
@@ -184,7 +192,6 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
           </p>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center gap-3 w-full">
           <button
             onClick={reset}
@@ -206,24 +213,23 @@ function PomodoroFullscreenView({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Main view
-// ─────────────────────────────────────────────────────────────────────────────
-
 export function PomodoroView() {
   const {
     settings, setSettings,
     phase, timeLeft, running, sessionsDone,
     noiseOn, noiseVol, noiseType,
+    focusToday, activeTask,
     toggleRun, reset, switchPhase,
     toggleNoise, setNoiseVol, setNoiseType,
+    requestNotifications, setNotificationsEnabled,
+    setActiveTask,
   } = usePomodoroContext()
 
+  const toast = useToast()
   const [showSettings, setShowSettings] = useState(false)
   const [draft, setDraft] = useState<PomodoroSettings>(settings)
   const [fullscreen, setFullscreen] = useState(false)
 
-  // Open fullscreen when timer starts
   useEffect(() => {
     if (running) setFullscreen(true)
   }, [running])
@@ -237,12 +243,23 @@ export function PomodoroView() {
   function openSettings() { playClick(); setDraft(settings); setShowSettings(true) }
   function saveSettings() { setSettings(draft); setShowSettings(false) }
 
+  async function handleToggleNotifications() {
+    if (settings.notificationsEnabled) {
+      setNotificationsEnabled(false)
+      toast.show('Notificações desligadas')
+      return
+    }
+    const ok = await requestNotifications()
+    toast.show(
+      ok ? 'Notificações ativadas 🔔' : 'Permissão negada — ative nas configurações do navegador',
+      { tone: ok ? 'success' : 'error' }
+    )
+  }
+
   return (
     <div className="flex flex-col items-center">
-      {/* Fullscreen overlay */}
       {fullscreen && <PomodoroFullscreenView onClose={() => setFullscreen(false)} />}
 
-      {/* Settings modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -274,7 +291,7 @@ export function PomodoroView() {
                 </div>
                 <input
                   type="range" min={min} max={max}
-                  value={draft[key]}
+                  value={draft[key] as number}
                   onChange={(e) => setDraft((s) => ({ ...s, [key]: Number(e.target.value) }))}
                   className="w-full accent-indigo-500 cursor-pointer"
                 />
@@ -288,14 +305,38 @@ export function PomodoroView() {
         </div>
       )}
 
-      <div className="w-full max-w-sm mx-auto pt-4 pb-10 space-y-8">
-        {/* Header */}
+      <div className="w-full max-w-sm mx-auto pt-4 pb-10 space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-xl font-bold text-white">Pomodoro</h1>
-          <button onClick={openSettings} className="p-2 rounded-xl text-white/30 hover:text-white/70 hover:bg-white/5 transition-all">
-            <Settings size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleToggleNotifications}
+              title={settings.notificationsEnabled ? 'Desligar notificações' : 'Ativar notificações'}
+              className={`p-2 rounded-xl transition-all ${settings.notificationsEnabled ? 'text-indigo-300 bg-indigo-500/15 border border-indigo-500/25' : 'text-white/30 hover:text-white/70 hover:bg-white/5 border border-transparent'}`}
+            >
+              {settings.notificationsEnabled ? <Bell size={16} /> : <BellOff size={16} />}
+            </button>
+            <button onClick={openSettings} className="p-2 rounded-xl text-white/30 hover:text-white/70 hover:bg-white/5 transition-all">
+              <Settings size={18} />
+            </button>
+          </div>
         </div>
+
+        {/* Today's focus total */}
+        {focusToday.seconds > 0 && (
+          <div className="flex items-center justify-between bg-gradient-to-r from-rose-500/10 to-transparent border border-rose-500/20 rounded-2xl px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-rose-300/70">Foco hoje</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-bold text-rose-300 font-mono tabular-nums">{formatFocus(focusToday.seconds)}</span>
+              <span className="text-[11px] text-white/35">{focusToday.sessions} sessão{focusToday.sessions !== 1 ? 'ões' : ''}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Active task pill */}
+        <ActiveTaskPill activeTask={activeTask} onClear={() => setActiveTask(null)} />
 
         {/* Phase tabs */}
         <div className="flex gap-1.5 bg-white/3 p-1 rounded-2xl">
@@ -311,7 +352,6 @@ export function PomodoroView() {
           ))}
         </div>
 
-        {/* Ring */}
         <div className="flex flex-col items-center gap-4">
           <div className="relative">
             <div className="absolute inset-0 rounded-full blur-2xl opacity-20 transition-all duration-1000" style={{ background: meta.ring }} />
@@ -332,7 +372,6 @@ export function PomodoroView() {
             </div>
           </div>
 
-          {/* Session dots */}
           <div className="flex items-center gap-2">
             {sessionDots.map((_, i) => (
               <div
@@ -347,7 +386,6 @@ export function PomodoroView() {
           </p>
         </div>
 
-        {/* Controls */}
         <div className="flex items-center gap-3">
           <button onClick={reset} className="flex items-center justify-center w-12 h-12 rounded-2xl bg-white/5 border border-white/8 text-white/40 hover:text-white/80 hover:bg-white/10 transition-all">
             <RotateCcw size={18} />
@@ -362,9 +400,7 @@ export function PomodoroView() {
           </button>
         </div>
 
-        {/* Ambient sound */}
         <div className={`rounded-2xl border p-4 space-y-3 transition-all duration-300 ${noiseOn ? 'border-sky-500/30 bg-sky-500/5' : 'border-white/8 bg-white/3'}`}>
-          {/* Header row */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <Wind size={16} className={noiseOn ? 'text-sky-400' : 'text-white/30'} />
@@ -380,7 +416,6 @@ export function PomodoroView() {
             </button>
           </div>
 
-          {/* Type selector — always visible */}
           <div className="grid grid-cols-4 gap-1.5">
             {(Object.keys(NOISE_META) as NoiseType[]).map((t) => (
               <button
@@ -397,7 +432,6 @@ export function PomodoroView() {
             ))}
           </div>
 
-          {/* Volume (only when on) */}
           {noiseOn && (
             <div className="space-y-1">
               <div className="flex items-center justify-between text-[11px] text-white/30">

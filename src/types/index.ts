@@ -2,6 +2,8 @@ export type TaskPriority = 'low' | 'medium' | 'high'
 
 export type TaskFilter = 'all' | 'pending' | 'completed'
 
+export type TaskRecurrence = 'daily' | 'weekly'
+
 export interface Task {
   id: string
   title: string
@@ -10,6 +12,10 @@ export interface Task {
   priority: TaskPriority
   createdAt: string
   completedAt?: string
+  /** Count of completed pomodoro sessions linked to this task. */
+  pomodoros?: number
+  /** When set, this task is auto-copied to newly-created days. */
+  recurring?: TaskRecurrence
 }
 
 /** A visual separator with an optional label, shared by all list types. */

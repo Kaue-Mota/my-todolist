@@ -1,0 +1,21 @@
+{
+  "name": "Organizer",
+  "short_name": "Organizer",
+  "description": "Organize tarefas, treinos e foco com Pomodoro",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#030712",
+  "theme_color": "#6366f1",
+  "lang": "pt-BR",
+  "categories": ["productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
